@@ -62,7 +62,7 @@ public sealed class RuntimePreflightService
         else if (installation.IsShellShim)
         {
             executable = "cmd.exe";
-            fullArguments = new List<string> { "/d", "/s", "/c", "\"" + installation.Executable + "\"" };
+            fullArguments = new List<string> { "/d", "/s", "/c", installation.Executable };
         }
         else
         {

@@ -207,7 +207,12 @@ public sealed class PluginCommandRunner
         }
         else if (installation.IsShellShim)
         {
-            startInfo = new ProcessStartInfo("cmd.exe", "/d /s /c \"" + installation.Executable + "\"");
+            // 与 HarnessProcessController 相同：只用 ArgumentList，避免与 Arguments 冲突
+            startInfo = new ProcessStartInfo("cmd.exe");
+            startInfo.ArgumentList.Add("/d");
+            startInfo.ArgumentList.Add("/s");
+            startInfo.ArgumentList.Add("/c");
+            startInfo.ArgumentList.Add(installation.Executable);
         }
         else
         {

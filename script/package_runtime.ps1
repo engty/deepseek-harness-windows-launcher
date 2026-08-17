@@ -1,4 +1,4 @@
-# package_runtime.ps1 — 把固定版本的 Node.js 和官方 dsh Runtime 打包进 Resources/runtime
+﻿# package_runtime.ps1 — 把固定版本的 Node.js 和官方 dsh Runtime 打包进 Resources/runtime
 # 对应 macOS 项目的 script/package_runtime.sh。
 #
 # 用法：
@@ -20,7 +20,8 @@ if (-not $SourceRoot -or -not (Test-Path $SourceRoot -PathType Container)) {
     exit 2
 }
 if (-not $NodePath) {
-    $NodePath = (Get-Command node.exe -ErrorAction SilentlyContinue)?.Source
+    $nodeCmd = Get-Command node.exe -ErrorAction SilentlyContinue
+    if ($nodeCmd) { $NodePath = $nodeCmd.Source }
 }
 if (-not $NodePath -or -not (Test-Path $NodePath)) {
     Write-Error '没有找到可执行 Node；请设置 HARNESS_NODE_PATH。'
@@ -51,11 +52,11 @@ try {
 $StagingRoot = Join-Path $RootDir "Resources\.runtime-staging-$PID"
 $Backup = $null
 try {
-    New-Item -ItemType Directory -Path (Join-Path $StagingRoot 'runtime\node\bin') -Force | Out-Null
-
     # robocopy 的 /MIR 复制；返回码 0-7 都是成功
     robocopy $RuntimeSource (Join-Path $StagingRoot 'runtime') /MIR /NFL /NDL /NJH /NJS | Out-Null
     if ($LASTEXITCODE -gt 7) { throw "robocopy 复制 Runtime 失败（$LASTEXITCODE）。" }
+    # 注意：/MIR 会清掉目标里源没有的目录，node\bin 必须在 robocopy 之后创建
+    New-Item -ItemType Directory -Path (Join-Path $StagingRoot 'runtime\node\bin') -Force | Out-Null
     Copy-Item $NodePath (Join-Path $StagingRoot 'runtime\node\bin\node.exe')
 
     # 内置 Node 必须实际能跑才能发布
@@ -67,16 +68,18 @@ try {
 
     if (Test-Path $Destination) {
         $Backup = "$Destination.backup.$(Get-Date -Format 'yyyyMMdd-HHmmss')-$PID"
-        Move-Item $Destination $Backup
+        # 用 robocopy /MOVE 代替 Move-Item：PS5.1 的 Move-Item 不支持超长路径（深层 node_modules 会失败）
+        robocopy $Destination $Backup /MIR /MOVE /NFL /NDL /NJH /NJS | Out-Null
+        if ($LASTEXITCODE -gt 7) { throw "旧 Runtime 备份失败（$LASTEXITCODE）。" }
         Write-Host "已有 Runtime 已保留到：$Backup"
     }
 
-    try {
-        Move-Item (Join-Path $StagingRoot 'runtime') $Destination
-    } catch {
+    # 落位同样用 robocopy /MOVE（长路径安全）
+    robocopy (Join-Path $StagingRoot 'runtime') $Destination /MIR /MOVE /NFL /NDL /NJH /NJS | Out-Null
+    if ($LASTEXITCODE -gt 7) {
         Write-Error '新 Runtime 落位失败，正在恢复旧 Runtime。'
         if ($Backup -and (Test-Path $Backup)) {
-            Move-Item $Backup $Destination -ErrorAction SilentlyContinue
+            robocopy $Backup $Destination /MIR /MOVE /NFL /NDL /NJH /NJS | Out-Null
         }
         exit 1
     }
@@ -86,7 +89,7 @@ try {
 finally {
     if (Test-Path $StagingRoot) { Remove-Item $StagingRoot -Recurse -Force -ErrorAction SilentlyContinue }
     if ($Backup -and -not (Test-Path $Destination) -and (Test-Path $Backup)) {
-        Move-Item $Backup $Destination -ErrorAction SilentlyContinue
+        robocopy $Backup $Destination /MIR /MOVE /NFL /NDL /NJH /NJS | Out-Null
     }
     Remove-Item $LockDir -Force -ErrorAction SilentlyContinue
 }

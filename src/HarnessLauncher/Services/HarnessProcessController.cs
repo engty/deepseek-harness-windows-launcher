@@ -165,7 +165,13 @@ public sealed class HarnessProcessController
             // Windows npm shims are .cmd scripts and must go through cmd.exe.
             // The bundled Node directory is already first on PATH, so the
             // shim finds node.exe without any system install.
-            startInfo = new ProcessStartInfo("cmd.exe", "/d /s /c \"" + installation.Executable + "\"");
+            // 注意：必须用 ArgumentList，不能混用 Arguments 字符串
+            //（.NET 不允许两者同时设置，运行时会直接拒绝启动）。
+            startInfo = new ProcessStartInfo("cmd.exe");
+            startInfo.ArgumentList.Add("/d");
+            startInfo.ArgumentList.Add("/s");
+            startInfo.ArgumentList.Add("/c");
+            startInfo.ArgumentList.Add(installation.Executable);
         }
         else
         {

@@ -146,6 +146,9 @@ public sealed class RuntimeLocator
 
     private static IEnumerable<string> ExecutableCandidates(string root)
     {
+        // 优先直接定位真实 JS 入口：有内置 Node 时可完全绕过 cmd.exe，
+        // 避免 cmd /c 的引号剥离怪癖在含空格路径下炸掉。
+        yield return Path.Combine(root, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js");
         yield return Path.Combine(root, "bin", "dsh.cmd");
         yield return Path.Combine(root, "dsh.cmd");
         yield return Path.Combine(root, "node_modules", ".bin", "dsh.cmd");

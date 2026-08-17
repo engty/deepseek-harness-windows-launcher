@@ -1,4 +1,4 @@
-# package_portable.ps1 — 发布免安装、免管理员的便携包（单文件 exe + zip）
+﻿# package_portable.ps1 — 发布免安装、免管理员的便携包（单文件 exe + zip）
 #
 # 用法：
 #   .\script\package_portable.ps1 [-Version 0.1.0]
@@ -17,8 +17,18 @@ $Project   = Join-Path $RootDir 'src\HarnessLauncher\HarnessLauncher.csproj'
 $Artifacts = Join-Path $RootDir 'artifacts'
 $Publish   = Join-Path $RootDir 'publish'
 
-if (Test-Path $Publish)   { Remove-Item $Publish   -Recurse -Force }
-if (Test-Path $Artifacts) { Remove-Item $Artifacts -Recurse -Force }
+# PS5.1 的 Remove-Item 不支持超长路径，用 robocopy 空镜像法清除目录
+function Remove-DirectoryRobust([string] $Path) {
+    if (-not (Test-Path $Path)) { return }
+    $empty = Join-Path $env:TEMP "purge-empty-$PID"
+    New-Item -ItemType Directory -Path $empty -Force | Out-Null
+    robocopy $empty $Path /MIR /NFL /NDL /NJH /NJS | Out-Null
+    Remove-Item $empty -Force -ErrorAction SilentlyContinue
+    Remove-Item $Path -Force -ErrorAction SilentlyContinue
+}
+
+Remove-DirectoryRobust $Publish
+Remove-DirectoryRobust $Artifacts
 
 # 1. 单元测试
 dotnet test (Join-Path $RootDir 'tests\HarnessLauncher.Tests\HarnessLauncher.Tests.csproj') -c Release
@@ -45,10 +55,20 @@ if (Test-Path (Join-Path $RootDir 'Resources\runtime')) {
     $fullDir = Join-Path $Artifacts 'DeepSeek Harness'
     New-Item -ItemType Directory -Path $fullDir -Force | Out-Null
     Copy-Item (Join-Path $Publish 'DeepSeekHarness.exe') $fullDir
-    Copy-Item (Join-Path $RootDir 'Resources\runtime') (Join-Path $fullDir 'runtime') -Recurse
-    Compress-Archive -Path $fullDir `
-        -DestinationPath (Join-Path $Artifacts "DeepSeek-Harness-v$Version-windows-x64-full.zip")
-    Remove-Item $fullDir -Recurse -Force
+    # 用 robocopy 代替 Copy-Item：PS5.1 的 Copy-Item 不支持超长路径（深层 node_modules 会失败）
+    robocopy (Join-Path $RootDir 'Resources\runtime') (Join-Path $fullDir 'runtime') /MIR /NFL /NDL /NJH /NJS | Out-Null
+    if ($LASTEXITCODE -gt 7) { Write-Error "复制 Runtime 失败（robocopy $LASTEXITCODE）。"; exit 1 }
+    # 用系统自带 bsdtar 打 zip：Compress-Archive 同样不支持超长路径
+    $fullZip = Join-Path $Artifacts "DeepSeek-Harness-v$Version-windows-x64-full.zip"
+    if (Test-Path $fullZip) { Remove-Item $fullZip -Force }
+    & "$env:SystemRoot\System32\tar.exe" -a -cf $fullZip -C $Artifacts 'DeepSeek Harness'
+    if ($LASTEXITCODE -ne 0) { Write-Error "打包 full.zip 失败（tar $LASTEXITCODE）。"; exit 1 }
+    # 超长路径目录用 robocopy 空镜像法清除
+    $emptyDir = Join-Path $Artifacts '.empty-purge'
+    New-Item -ItemType Directory -Path $emptyDir -Force | Out-Null
+    robocopy $emptyDir $fullDir /MIR /NFL /NDL /NJH /NJS | Out-Null
+    Remove-Item $emptyDir -Force -ErrorAction SilentlyContinue
+    Remove-Item $fullDir -Force -ErrorAction SilentlyContinue
     Write-Host '已生成含内置 Runtime 的完整压缩包。'
 }
 

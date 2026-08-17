@@ -1,4 +1,4 @@
-# build_and_run.ps1 — 本地构建并运行（对应 macOS 的 script/build_and_run.sh）
+﻿# build_and_run.ps1 — 本地构建并运行（对应 macOS 的 script/build_and_run.sh）
 # 如果 Resources\runtime 存在，自动通过 HARNESS_RUNTIME_ROOT 指向它；
 # 否则也可以先设 HARNESS_DSH_PATH 指向任意 dsh。
 $ErrorActionPreference = 'Stop'
