@@ -1,0 +1,58 @@
+name: windows-release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore src/HarnessLauncher/HarnessLauncher.csproj
+
+      - name: Build
+        run: dotnet build src/HarnessLauncher/HarnessLauncher.csproj -c Release --no-restore
+
+      - name: Test
+        run: dotnet test tests/HarnessLauncher.Tests/HarnessLauncher.Tests.csproj -c Release
+
+      - name: Publish portable single-file exe
+        run: |
+          dotnet publish src/HarnessLauncher/HarnessLauncher.csproj -c Release -r win-x64 `
+            --self-contained true -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishReadyToRun=true `
+            -o publish
+
+      - name: Package portable zip
+        shell: pwsh
+        run: |
+          $version = '0.1.0'
+          if ($env:GITHUB_REF_TYPE -eq 'tag') { $version = $env:GITHUB_REF_NAME -replace '^v', '' }
+          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
+          Copy-Item publish\DeepSeekHarness.exe artifacts\
+          Compress-Archive -Path artifacts\DeepSeekHarness.exe `
+            -DestinationPath "artifacts\DeepSeek-Harness-v$version-windows-x64.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-portable
+          path: artifacts/
+
+      - name: Upload release assets
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*.zip

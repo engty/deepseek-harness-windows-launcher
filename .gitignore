@@ -1,0 +1,17 @@
+# Build outputs
+bin/
+obj/
+publish/
+artifacts/
+Resources/runtime/
+Resources/.runtime-lock/
+Resources/.runtime-staging-*/
+
+# IDE
+.vs/
+.vscode/
+*.user
+
+# OS
+Thumbs.db
+Desktop.ini

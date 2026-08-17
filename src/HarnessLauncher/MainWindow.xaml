@@ -1,0 +1,98 @@
+<Window x:Class="HarnessLauncher.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="DeepSeek Harness" Width="1280" Height="820"
+        MinWidth="980" MinHeight="680"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource AppBackgroundBrush}"
+        Foreground="{DynamicResource AppForegroundBrush}">
+    <DockPanel Background="{DynamicResource AppBackgroundBrush}">
+        <Menu DockPanel.Dock="Top"
+              Background="{DynamicResource AppPanelBackgroundBrush}"
+              Foreground="{DynamicResource AppForegroundBrush}">
+            <MenuItem Header="DeepSeek">
+                <MenuItem x:Name="ChangeApiKeyMenuItem" Header="更换 DeepSeek API Key…" Click="ChangeApiKey_Click"/>
+                <Separator/>
+                <MenuItem Header="检查 Harness Runtime 更新…" Click="CheckUpdates_Click"/>
+                <MenuItem Header="检查 DeepSeek Harness App 更新…" Click="CheckAppUpdates_Click"/>
+                <Separator/>
+                <MenuItem x:Name="RestartMenuItem" Header="重启 DeepSeek Harness" Click="Restart_Click"/>
+                <Separator/>
+                <MenuItem Header="退出" Click="Exit_Click"/>
+            </MenuItem>
+            <MenuItem Header="插件">
+                <MenuItem x:Name="InstallPluginMenuItem" Header="安装插件…" Click="InstallPlugin_Click"/>
+                <MenuItem x:Name="StopPluginMenuItem" Header="停用插件…" Click="StopPlugin_Click"/>
+                <MenuItem x:Name="RemovePluginMenuItem" Header="卸载插件…" Click="RemovePlugin_Click"/>
+                <Separator/>
+                <MenuItem x:Name="InstalledPluginsMenuItem" Header="已安装插件"/>
+            </MenuItem>
+        </Menu>
+
+        <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1"
+                BorderBrush="{DynamicResource AppBorderBrush}"
+                Background="{DynamicResource AppPanelBackgroundBrush}" Padding="14,6">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="Red"
+                         VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock x:Name="VersionText" Text="DeepSeek Harness"
+                           FontSize="12" Foreground="{DynamicResource AppSecondaryForegroundBrush}"
+                           VerticalAlignment="Center"/>
+
+                <Border Width="1" Background="{DynamicResource AppSeparatorBrush}" Margin="12,2"/>
+
+                <Button x:Name="BalanceButton" Click="Balance_Click"
+                        Background="Transparent" BorderThickness="0" Cursor="Hand"
+                        Foreground="{DynamicResource AppForegroundBrush}"
+                        ToolTip="配置 DeepSeek API Key">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="💳 " FontSize="12" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="BalanceText" Text="余额未设置" FontSize="12"
+                                   Foreground="{DynamicResource AppSecondaryForegroundBrush}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+
+                <Border x:Name="UpdateSeparator" Width="1"
+                        Background="{DynamicResource AppSeparatorBrush}"
+                        Margin="12,2" Visibility="Collapsed"/>
+                <Button x:Name="UpdateButton" Click="DownloadUpdate_Click"
+                        Background="Transparent" BorderThickness="0" Cursor="Hand"
+                        Foreground="{DynamicResource AppForegroundBrush}"
+                        FontSize="14" Visibility="Collapsed"
+                        ToolTip="下载 DeepSeek Harness 更新">
+                    <TextBlock Text="⬇"/>
+                </Button>
+            </StackPanel>
+        </Border>
+
+        <Grid Background="{DynamicResource AppBackgroundBrush}">
+            <wv2:WebView2 x:Name="WebView" Visibility="Collapsed"/>
+
+            <Border x:Name="StartupPanel" Background="{DynamicResource AppPanelBackgroundBrush}">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="560">
+                    <TextBlock Text="📦" FontSize="48" HorizontalAlignment="Center"
+                               Foreground="{DynamicResource AppForegroundBrush}"/>
+                    <TextBlock Text="DeepSeek Harness" FontSize="22" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" Margin="0,16,0,0"
+                               Foreground="{DynamicResource AppForegroundBrush}"/>
+                    <TextBlock x:Name="PhaseTitleText" FontSize="14"
+                               Foreground="{DynamicResource AppSecondaryForegroundBrush}"
+                               HorizontalAlignment="Center" Margin="0,6,0,0"/>
+                    <ProgressBar x:Name="StartingProgress" IsIndeterminate="True"
+                                 Width="160" Height="4" Margin="0,20,0,0" Visibility="Collapsed"/>
+                    <TextBlock x:Name="DetailText" FontSize="13"
+                               Foreground="{DynamicResource AppSecondaryForegroundBrush}"
+                               TextWrapping="Wrap" TextAlignment="Center" Margin="0,20,0,0"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,24,0,0">
+                        <Button x:Name="RestartButton" Content="重启 DeepSeek Harness"
+                                Padding="16,8" Click="Restart_Click"/>
+                        <Button Content="导出诊断信息" Padding="16,8" Margin="12,0,0,0"
+                                Click="ExportDiagnostics_Click"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>
