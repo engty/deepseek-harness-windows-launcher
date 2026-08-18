@@ -20,6 +20,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // 主窗口也要走统一样式：背景/前景 + 暗色标题栏
+        Support.ThemeManager.StyleWindow(this);
         _dialogs = new WpfLauncherDialogs(this);
         _model = new LauncherModel(dialogs: _dialogs);
         _model.PropertyChanged += Model_PropertyChanged;

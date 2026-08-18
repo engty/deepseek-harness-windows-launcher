@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Media;
 using Microsoft.Win32;
 
@@ -61,6 +62,7 @@ public static class ThemeManager
             Set(resources, "AppBorderBrush", 0x44, 0x44, 0x44);
             Set(resources, "AppSeparatorBrush", 0x44, 0x44, 0x44);
             Set(resources, "AppButtonBackgroundBrush", 0x3A, 0x3A, 0x3A);
+            Set(resources, "AppHoverBackgroundBrush", 0x44, 0x44, 0x44);
             Set(resources, "AppInputBackgroundBrush", 0x33, 0x33, 0x33);
         }
         else
@@ -72,9 +74,48 @@ public static class ThemeManager
             Set(resources, "AppBorderBrush", 0x22, 0x22, 0x22, alpha: 0x22);
             Set(resources, "AppSeparatorBrush", 0x00, 0x00, 0x00, alpha: 0x33);
             Set(resources, "AppButtonBackgroundBrush", 0xF5, 0xF5, 0xF5);
+            Set(resources, "AppHoverBackgroundBrush", 0xE5, 0xE5, 0xE5);
             Set(resources, "AppInputBackgroundBrush", 0xFF, 0xFF, 0xFF);
         }
+        ApplySystemColorOverrides(resources, theme);
         ThemeChanged?.Invoke(theme);
+    }
+
+    /// <summary>
+    /// WPF 原生控件（菜单弹出层、按钮悬停态等）的默认模板直接引用
+    /// SystemColors 键；在应用资源里按主题覆盖这些键，下拉菜单、
+    /// 禁用文字、选中高亮才会跟随亮/暗色，而不是固定使用系统浅色值。
+    /// </summary>
+    private static void ApplySystemColorOverrides(ResourceDictionary resources, AppTheme theme)
+    {
+        if (theme == AppTheme.Dark)
+        {
+            resources[SystemColors.MenuBrushKey] = new SolidColorBrush(Color.FromRgb(0x2B, 0x2B, 0x2B));
+            resources[SystemColors.MenuBarBrushKey] = new SolidColorBrush(Color.FromRgb(0x2B, 0x2B, 0x2B));
+            resources[SystemColors.MenuTextBrushKey] = new SolidColorBrush(Color.FromRgb(0xE8, 0xE8, 0xE8));
+            resources[SystemColors.ControlBrushKey] = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3A));
+            resources[SystemColors.ControlTextBrushKey] = new SolidColorBrush(Color.FromRgb(0xE8, 0xE8, 0xE8));
+            resources[SystemColors.WindowBrushKey] = new SolidColorBrush(Color.FromRgb(0x20, 0x20, 0x20));
+            resources[SystemColors.WindowTextBrushKey] = new SolidColorBrush(Color.FromRgb(0xE8, 0xE8, 0xE8));
+            resources[SystemColors.HighlightBrushKey] = new SolidColorBrush(Color.FromRgb(0x3E, 0x5A, 0x88));
+            resources[SystemColors.HighlightTextBrushKey] = new SolidColorBrush(Colors.White);
+            resources[SystemColors.GrayTextBrushKey] = new SolidColorBrush(Color.FromRgb(0x7A, 0x7A, 0x7A));
+            resources[SystemColors.InactiveBorderBrushKey] = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44));
+        }
+        else
+        {
+            resources[SystemColors.MenuBrushKey] = new SolidColorBrush(Color.FromRgb(0xF0, 0xF0, 0xF0));
+            resources[SystemColors.MenuBarBrushKey] = new SolidColorBrush(Color.FromRgb(0xF0, 0xF0, 0xF0));
+            resources[SystemColors.MenuTextBrushKey] = new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1A));
+            resources[SystemColors.ControlBrushKey] = new SolidColorBrush(Color.FromRgb(0xF0, 0xF0, 0xF0));
+            resources[SystemColors.ControlTextBrushKey] = new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1A));
+            resources[SystemColors.WindowBrushKey] = new SolidColorBrush(Colors.White);
+            resources[SystemColors.WindowTextBrushKey] = new SolidColorBrush(Color.FromRgb(0x1A, 0x1A, 0x1A));
+            resources[SystemColors.HighlightBrushKey] = new SolidColorBrush(Color.FromRgb(0x2D, 0x62, 0xC4));
+            resources[SystemColors.HighlightTextBrushKey] = new SolidColorBrush(Colors.White);
+            resources[SystemColors.GrayTextBrushKey] = new SolidColorBrush(Color.FromRgb(0x6D, 0x6D, 0x6D));
+            resources[SystemColors.InactiveBorderBrushKey] = new SolidColorBrush(Color.FromRgb(0xD9, 0xD9, 0xD9));
+        }
     }
 
     private static void Set(ResourceDictionary resources, string key, byte r, byte g, byte b, byte alpha = 0xFF)
@@ -98,5 +139,33 @@ public static class ThemeManager
         window.Foreground = (Brush)Application.Current.Resources["AppForegroundBrush"];
         window.SetResourceReference(Window.BackgroundProperty, "AppBackgroundBrush");
         window.SetResourceReference(Window.ForegroundProperty, "AppForegroundBrush");
+
+        // 标题栏跟随主题：DWMWA_USE_IMMERSIVE_DARK_MODE（Win10 1809+）。
+        // 窗口句柄可能在 StyleWindow 调用时还没创建，挂到 SourceInitialized 上。
+        if (new WindowInteropHelper(window).Handle != IntPtr.Zero)
+        {
+            ApplyDarkTitleBar(window);
+        }
+        else
+        {
+            window.SourceInitialized += (_, _) => ApplyDarkTitleBar(window);
+        }
+        ThemeChanged += _ => window.Dispatcher.Invoke(() => ApplyDarkTitleBar(window));
     }
+
+    private static void ApplyDarkTitleBar(Window window)
+    {
+        var hwnd = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+        if (hwnd == IntPtr.Zero) return;
+        var dark = Current == AppTheme.Dark ? 1 : 0;
+        // 20 = DWMWA_USE_IMMERSIVE_DARK_MODE（2004+），旧系统退回未公开的 19
+        if (DwmSetWindowAttribute(hwnd, 20, ref dark, sizeof(int)) != 0)
+        {
+            DwmSetWindowAttribute(hwnd, 19, ref dark, sizeof(int));
+        }
+    }
+
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr hwnd, int attribute, ref int value, int size);
 }
