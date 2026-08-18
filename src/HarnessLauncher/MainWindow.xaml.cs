@@ -13,15 +13,25 @@ public partial class MainWindow : Window
 {
     private readonly LauncherModel _model;
     private readonly WpfLauncherDialogs _dialogs;
+    private readonly Support.TrayIconService _tray;
     private bool _webViewReady;
     private Uri? _loadedOrigin;
     private bool _shutdownStarted;
+    private bool _allowExit;
 
     public MainWindow()
     {
         InitializeComponent();
         // 主窗口也要走统一样式：背景/前景 + 暗色标题栏
         Support.ThemeManager.StyleWindow(this);
+        _tray = new Support.TrayIconService();
+        _tray.RestoreRequested += RestoreFromTray;
+        _tray.ExitRequested += () =>
+        {
+            // 托盘右键「退出启动器」：真正退出
+            _allowExit = true;
+            Close();
+        };
         _dialogs = new WpfLauncherDialogs(this);
         _model = new LauncherModel(dialogs: _dialogs);
         _model.PropertyChanged += Model_PropertyChanged;
@@ -258,12 +268,39 @@ public partial class MainWindow : Window
 
     private void ExportDiagnostics_Click(object sender, RoutedEventArgs e) => _model.ExportDiagnostics();
 
-    private void Exit_Click(object sender, RoutedEventArgs e) => Close();
+    private void Exit_Click(object sender, RoutedEventArgs e)
+    {
+        // 窗口菜单「退出」视为明确退出意图：直接真正退出
+        _allowExit = true;
+        Close();
+    }
+
+    /// <summary>双击托盘图标 / 托盘菜单「显示主窗口」时还原窗口。</summary>
+    private void RestoreFromTray()
+    {
+        Show();
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
+        Topmost = true;
+        Topmost = false;
+        Focus();
+    }
 
     private async void MainWindow_Closing(object? sender, CancelEventArgs e)
     {
+        // 默认关闭（点 X）不退出，最小化到系统托盘后台运行
+        if (!_allowExit)
+        {
+            e.Cancel = true;
+            Hide();
+            _tray.NotifyMinimized();
+            return;
+        }
         if (_shutdownStarted || !_model.IsHarnessRunning)
         {
+            _tray.Dispose();
+            // ShutdownMode 是 OnExplicitShutdown，窗口关闭不会自动退进程
+            Application.Current.Shutdown();
             return;
         }
         // Mirror the macOS terminateLater flow: delay the close until the
@@ -275,6 +312,7 @@ public partial class MainWindow : Window
             await _model.StopAsync();
         }
         catch { }
+        _tray.Dispose();
         Application.Current.Shutdown();
     }
 
