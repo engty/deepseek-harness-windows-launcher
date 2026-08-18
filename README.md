@@ -4,6 +4,8 @@
 >
 > 本项目是 [deepseek-harness-macos-launcher](https://github.com/engty/deepseek-harness-macos-launcher) 的 Windows 移植版。
 
+![DeepSeek Harness 界面](Resources/DeepSeekHarness-screenshot.png)
+
 ## 项目初衷
 
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 本身是一个通过命令行或浏览器使用的工具：要自己装 Node.js、装依赖、敲命令、管版本。对普通用户来说门槛太高了。
