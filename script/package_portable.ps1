@@ -120,3 +120,5 @@ GUIMode="2"
 
 Copy-Item (Join-Path $Publish 'DeepSeekHarness.exe') (Join-Path $Artifacts 'DeepSeekHarness.exe') -Force
 Get-ChildItem $Artifacts | Select-Object Name, @{N='MB';E={[math]::Round($_.Length / 1MB, 1)}}
+
+exit 0
