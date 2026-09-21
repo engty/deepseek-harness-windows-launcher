@@ -98,3 +98,5 @@ finally {
     }
     Remove-Item $LockDir -Force -ErrorAction SilentlyContinue
 }
+
+exit 0
