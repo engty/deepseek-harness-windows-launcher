@@ -20,7 +20,15 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      - uses: ilammy/setup-7zip@v1
+      - name: Verify packaging tools
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\Program Files\7-Zip\7z.exe')) {
+            throw 'GitHub Windows runner 中没有找到 C:\Program Files\7-Zip\7z.exe。'
+          }
+          if (-not (Test-Path 'C:\Program Files\7-Zip\7z.sfx')) {
+            throw 'GitHub Windows runner 中没有找到 C:\Program Files\7-Zip\7z.sfx。'
+          }
 
       - name: Resolve package version
         id: version
