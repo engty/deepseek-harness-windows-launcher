@@ -3,6 +3,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              ShutdownMode="OnExplicitShutdown">
     <Application.Resources>
+        <FontFamily x:Key="AppFont">Segoe UI Variable Text, Segoe UI</FontFamily>
+        <FontFamily x:Key="AppDisplayFont">Segoe UI Variable Display, Segoe UI</FontFamily>
+        <DropShadowEffect x:Key="AppCardShadow" BlurRadius="28" ShadowDepth="8" Opacity="0.16"/>
         <Style TargetType="TextBox">
             <Setter Property="Background" Value="{DynamicResource AppInputBackgroundBrush}"/>
             <Setter Property="Foreground" Value="{DynamicResource AppForegroundBrush}"/>
@@ -22,6 +25,7 @@
         </Style>
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource AppForegroundBrush}"/>
+            <Setter Property="FontFamily" Value="{DynamicResource AppFont}"/>
         </Style>
         <Style TargetType="Button">
             <Setter Property="Background" Value="{DynamicResource AppButtonBackgroundBrush}"/>
@@ -34,7 +38,8 @@
                         <Border x:Name="Bd"
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="1">
+                                BorderThickness="1"
+                                CornerRadius="10">
                             <ContentPresenter Margin="{TemplateBinding Padding}"
                                               HorizontalAlignment="Center"
                                               VerticalAlignment="Center"/>

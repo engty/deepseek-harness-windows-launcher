@@ -50,7 +50,7 @@ public sealed class TrayIconService : IDisposable
         var processPath = Environment.ProcessPath;
         if (processPath is not null)
         {
-            try { return System.Drawing.Icon.ExtractAssociatedIcon(processPath); }
+            try { return System.Drawing.Icon.ExtractAssociatedIcon(processPath) ?? System.Drawing.SystemIcons.Application; }
             catch { }
         }
         return System.Drawing.SystemIcons.Application;

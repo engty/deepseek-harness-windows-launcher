@@ -290,18 +290,18 @@ public sealed class RuntimeArchiveInstaller
                 return Path.GetFullPath(Path.Combine(
                     Path.GetDirectoryName(executable)!, "..", "..", ".."));
             }
-            return Path.GetDirectoryName(executable)!;
+                return Path.GetDirectoryName(executable) ?? staging;
         }
 
         var direct = DirectCandidates(staging).FirstOrDefault(File.Exists);
-        if (direct is not null) return RootFor(direct, staging);
+        if (direct is not null) return RootFor(direct, staging) ?? staging;
 
         var directories = Directory.GetDirectories(staging);
         if (directories.Length != 1) throw RuntimeArchiveException.RuntimeExecutableMissing;
         var nested = directories[0];
         var nestedExecutable = DirectCandidates(nested).FirstOrDefault(File.Exists);
         if (nestedExecutable is null) throw RuntimeArchiveException.RuntimeExecutableMissing;
-        return RootFor(nestedExecutable, nested);
+        return RootFor(nestedExecutable, nested) ?? nested;
     }
 
     private static void ValidateArchiveEntries(IReadOnlyList<string> entries)

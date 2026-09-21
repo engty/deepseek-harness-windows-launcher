@@ -39,6 +39,11 @@ if (-not (Test-Path $pnpmShim)) {
     Write-Error 'Runtime source 中没有 node_modules\.bin\pnpm.cmd；请把固定版本 pnpm 一起安装到 Runtime。'
     exit 2
 }
+$defaultProfile = Join-Path $RuntimeSource 'default-profile\profiles\web'
+if (-not (Test-Path (Join-Path $defaultProfile 'package.json'))) {
+    Write-Error 'Runtime source 中没有 default-profile\profiles\web；完整发布需要内置插件 profile（1024 Store、GenUI、桌宠、隐私路由、Mnemon 和技能包）。'
+    exit 2
+}
 
 # Single-writer lock（对应 macOS 的 .runtime-lock 目录锁）
 $LockDir = Join-Path $RootDir 'Resources\.runtime-lock'

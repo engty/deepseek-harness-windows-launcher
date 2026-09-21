@@ -64,6 +64,10 @@ public static class ThemeManager
             Set(resources, "AppButtonBackgroundBrush", 0x3A, 0x3A, 0x3A);
             Set(resources, "AppHoverBackgroundBrush", 0x44, 0x44, 0x44);
             Set(resources, "AppInputBackgroundBrush", 0x33, 0x33, 0x33);
+            Set(resources, "AppGlassBrush", 0x30, 0x30, 0x38, 0xD0);
+            Set(resources, "AppGlassStrongBrush", 0x43, 0x43, 0x4D, 0xF0);
+            Set(resources, "AppAccentBrush", 0x6C, 0x9D, 0xFF);
+            Set(resources, "AppAccentForegroundBrush", 0x10, 0x18, 0x2A);
         }
         else
         {
@@ -76,6 +80,10 @@ public static class ThemeManager
             Set(resources, "AppButtonBackgroundBrush", 0xF5, 0xF5, 0xF5);
             Set(resources, "AppHoverBackgroundBrush", 0xE5, 0xE5, 0xE5);
             Set(resources, "AppInputBackgroundBrush", 0xFF, 0xFF, 0xFF);
+            Set(resources, "AppGlassBrush", 0xFF, 0xFF, 0xFF, 0xD9);
+            Set(resources, "AppGlassStrongBrush", 0xFF, 0xFF, 0xFF, 0xF2);
+            Set(resources, "AppAccentBrush", 0x2D, 0x62, 0xC4);
+            Set(resources, "AppAccentForegroundBrush", 0xFF, 0xFF, 0xFF);
         }
         ApplySystemColorOverrides(resources, theme);
         ThemeChanged?.Invoke(theme);
@@ -163,6 +171,11 @@ public static class ThemeManager
         {
             DwmSetWindowAttribute(hwnd, 19, ref dark, sizeof(int));
         }
+        // DWMWA_SYSTEMBACKDROP_TYPE = 38; TABBED gives Windows 11 a soft
+        // translucent material while Windows 10 safely falls back to the
+        // themed solid brushes above.
+        var backdrop = 4;
+        DwmSetWindowAttribute(hwnd, 38, ref backdrop, sizeof(int));
     }
 
     [System.Runtime.InteropServices.DllImport("dwmapi.dll")]

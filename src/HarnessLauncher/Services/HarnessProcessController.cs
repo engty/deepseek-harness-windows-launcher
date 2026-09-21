@@ -74,13 +74,8 @@ public sealed class HarnessProcessController
         var startInfo = CreateStartInfo(installation, dshArguments);
         startInfo.WorkingDirectory = currentDirectoryOverride ?? paths.ActiveDataSlot;
 
-        var environment = Environment.GetEnvironmentVariables()
-            .Cast<System.Collections.DictionaryEntry>()
-            .ToDictionary(e => (string)e.Key, e => (string?)e.Value)!;
-        environment["DSH_HOME"] = dshHomeOverride ?? paths.DshHome;
-        environment["DSH_LAUNCHER"] = "DeepSeekHarness";
-        environment["PATH"] = new PluginDependencyService(environment, paths.Toolchain)
-            .RuntimeSearchPath(installation);
+        var environment = PluginExecutionEnvironment.Create(
+            installation, paths, dshHomeOverride ?? paths.DshHome);
         startInfo.Environment.Clear();
         foreach (var pair in environment)
         {

@@ -98,14 +98,20 @@ public sealed class PluginCommandRunner
             }
 
             var dependencyService = new PluginDependencyService(privateToolchainRoot: paths.Toolchain);
-            var result = await RunAsync(
+            var pluginEnvironment = PluginExecutionEnvironment.Create(
                 installation,
-                new[] { "plugin", "--profile", "web" }.Concat(arguments).ToList(),
-                dependencyService.Applying(dependencyPlan, new Dictionary<string, string>
+                paths,
+                stagingHome,
+                dependencyPlan.SearchPath,
+                new Dictionary<string, string>
                 {
                     ["DSH_HOME"] = stagingHome,
                     ["DSH_LAUNCHER"] = "DeepSeekHarness",
-                }),
+                });
+            var result = await RunAsync(
+                installation,
+                new[] { "plugin", "--profile", "web" }.Concat(arguments).ToList(),
+                pluginEnvironment,
                 stagingProfile,
                 paths.PluginOperationsLog).ConfigureAwait(false);
 
@@ -122,11 +128,7 @@ public sealed class PluginCommandRunner
             var preflight = await RunAsync(
                 installation,
                 new[] { "--profile", "web", "--dump-config" },
-                dependencyService.Applying(dependencyPlan, new Dictionary<string, string>
-                {
-                    ["DSH_HOME"] = stagingHome,
-                    ["DSH_LAUNCHER"] = "DeepSeekHarness",
-                }),
+                pluginEnvironment,
                 stagingProfile,
                 paths.PluginOperationsLog).ConfigureAwait(false);
             if (preflight.Status != 0)

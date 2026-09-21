@@ -6,6 +6,8 @@ artifacts/
 Resources/runtime/
 Resources/.runtime-lock/
 Resources/.runtime-staging-*/
+Resources/webview2/
+.portable-staging/
 
 # IDE
 .vs/

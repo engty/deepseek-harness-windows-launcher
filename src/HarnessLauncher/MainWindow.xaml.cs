@@ -1,9 +1,12 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
 using HarnessLauncher.Models;
 using HarnessLauncher.Services;
+using HarnessLauncher.Support;
 using HarnessLauncher.Views;
 using Microsoft.Web.WebView2.Core;
 
@@ -18,6 +21,7 @@ public partial class MainWindow : Window
     private Uri? _loadedOrigin;
     private bool _shutdownStarted;
     private bool _allowExit;
+    private readonly DispatcherTimer _discountTimer;
 
     public MainWindow()
     {
@@ -35,6 +39,9 @@ public partial class MainWindow : Window
         _dialogs = new WpfLauncherDialogs(this);
         _model = new LauncherModel(dialogs: _dialogs);
         _model.PropertyChanged += Model_PropertyChanged;
+        _discountTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        _discountTimer.Tick += (_, _) => RefreshDiscount();
+        _discountTimer.Start();
         Closing += MainWindow_Closing;
         Loaded += async (_, _) =>
         {
@@ -49,11 +56,37 @@ public partial class MainWindow : Window
         try
         {
             var environment = await CoreWebView2Environment.CreateAsync(
+                browserExecutableFolder: WebView2RuntimeLocator.FindBundled(),
                 userDataFolder: _model.Paths.WebView2UserData);
             await WebView.EnsureCoreWebView2Async(environment);
             WebView.CoreWebView2.NavigationStarting += WebView_NavigationStarting;
             WebView.CoreWebView2.NewWindowRequested += WebView_NewWindowRequested;
+            WebView.CoreWebView2.WebMessageReceived += WebView_WebMessageReceived;
             WebView.CoreWebView2.NavigationCompleted += WebView_NavigationCompleted;
+            await WebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync("""
+                (() => {
+                  if (!window.chrome?.webview || window.webkit?.messageHandlers?.launcherPluginStore) return;
+                  window.webkit = window.webkit || {};
+                  window.webkit.messageHandlers = window.webkit.messageHandlers || {};
+                  const pending = new Map();
+                  window.chrome.webview.addEventListener('message', event => {
+                    const message = event.data;
+                    if (!message || message.__dshBridgeReply !== true || !pending.has(message.requestId)) return;
+                    const resolve = pending.get(message.requestId);
+                    pending.delete(message.requestId);
+                    resolve(message);
+                  });
+                  window.webkit.messageHandlers.launcherPluginStore = {
+                    postMessage(body) {
+                      const requestId = crypto.randomUUID();
+                      return new Promise(resolve => {
+                        pending.set(requestId, resolve);
+                        window.chrome.webview.postMessage({ __dshBridge: 'launcherPluginStore', requestId, body });
+                      });
+                    }
+                  };
+                })();
+                """);
             // Let the hosted Harness web UI follow the system light/dark
             // mode via prefers-color-scheme.
             WebView.CoreWebView2.Profile.PreferredColorScheme =
@@ -71,7 +104,7 @@ public partial class MainWindow : Window
         catch (Exception error)
         {
             _model.WebViewDidFail(
-                "WebView2 运行时不可用。请安装 Microsoft Edge WebView2 Runtime（大多数 Windows 10/11 已内置）：" +
+                "便携包内的 WebView2 固定运行时不可用。请重新解压完整安装包，或在开发环境安装 Microsoft Edge WebView2 Runtime：" +
                 error.Message);
         }
     }
@@ -94,6 +127,7 @@ public partial class MainWindow : Window
         StatusDot.Fill = phase.IsReady ? Brushes.ForestGreen : Brushes.Firebrick;
         VersionText.Text = _model.RuntimeVersion is { } version
             ? $"DeepSeek Harness {version}" : "DeepSeek Harness";
+        RefreshDiscount();
         BalanceText.Text = _model.BalanceState is DeepSeekBalanceState.Available &&
             _model.BalanceAmountDisplayText is { } amount
                 ? $"余额 {amount}"
@@ -173,6 +207,8 @@ public partial class MainWindow : Window
             return;
         }
         if (SharesOrigin(target, _loadedOrigin)) return;
+        if (target.Scheme == "https" &&
+            target.Host.Equals("deepseek1024.com", StringComparison.OrdinalIgnoreCase)) return;
         // Only user-clicked external links may leave the dedicated App
         // window. Redirects and script navigations are denied.
         if (target.Scheme == "https" && e.IsUserInitiated)
@@ -188,6 +224,42 @@ public partial class MainWindow : Window
         if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var target) && target.Scheme == "https")
         {
             OpenExternal(target);
+        }
+    }
+
+    private async void WebView_WebMessageReceived(
+        object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        try
+        {
+            if (_loadedOrigin is null || !Uri.TryCreate(e.Source, UriKind.Absolute, out var source)) return;
+            var isLocal = SharesOrigin(source, _loadedOrigin);
+            var isStore = source.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) &&
+                          source.Host.Equals("deepseek1024.com", StringComparison.OrdinalIgnoreCase);
+            if (!isLocal && !isStore) return;
+
+            using var document = JsonDocument.Parse(e.WebMessageAsJson);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("__dshBridge", out var bridge) ||
+                bridge.GetString() != "launcherPluginStore" ||
+                !root.TryGetProperty("requestId", out var requestIdValue) ||
+                !root.TryGetProperty("body", out var body) ||
+                !body.TryGetProperty("arguments", out var arguments) ||
+                arguments.ValueKind != JsonValueKind.Array) return;
+
+            var requestId = requestIdValue.GetString();
+            var command = arguments.EnumerateArray()
+                .Where(value => value.ValueKind == JsonValueKind.String)
+                .Select(value => value.GetString()!)
+                .ToList();
+            var result = await _model.HandlePluginStoreRequestAsync(command);
+            result["__dshBridgeReply"] = true;
+            result["requestId"] = requestId;
+            WebView.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(result));
+        }
+        catch (Exception error)
+        {
+            AppLogger.Log(AppLogger.Level.Error, "webview", $"Plugin store bridge failed: {error.Message}");
         }
     }
 
@@ -248,6 +320,28 @@ public partial class MainWindow : Window
 
     private void ChangeApiKey_Click(object sender, RoutedEventArgs e) =>
         _model.ConfigureDeepSeekBalance(forcePrompt: true);
+
+    private void ShowPet_Click(object sender, RoutedEventArgs e) => _model.SetDesktopPetEnabled(true);
+
+    private void HidePet_Click(object sender, RoutedEventArgs e) => _model.SetDesktopPetEnabled(false);
+
+    private void ClearPluginCache_Click(object sender, RoutedEventArgs e) => _model.ClearPluginCachePrompt();
+
+    private void Discount_Click(object sender, RoutedEventArgs e)
+    {
+        var period = DeepSeekDiscountPeriodExtensions.Current();
+        MessageBox.Show(this,
+            $"北京时间（UTC+8）\n\n当前：{period.Label()}，价格倍率 {period.MultiplierText()}。\n\n高峰时段：周一至周五 09:00–12:00、14:00–18:00。\n其余时间为折扣时段。",
+            "DeepSeek 折扣时段", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void RefreshDiscount()
+    {
+        if (!IsLoaded) return;
+        var period = DeepSeekDiscountPeriodExtensions.Current();
+        DiscountText.Text = $"折扣 {period.MultiplierText()}";
+        DiscountButton.ToolTip = $"{period.Label()} · 北京时间（UTC+8）";
+    }
 
     private void Balance_Click(object sender, RoutedEventArgs e) =>
         _model.ConfigureDeepSeekBalance(forcePrompt: _model.IsBalanceConfigured);

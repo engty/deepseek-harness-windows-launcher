@@ -25,3 +25,14 @@ Hardened Runtime; the signing private key is never stored in this repository.
 GitHub-hosted builds remain ad-hoc unless a separately controlled signing job
 imports a short-lived certificate into a temporary keychain. Verify published
 checksums before redistribution.
+
+The default official Runtime version signal is the HTTPS npm metadata endpoint
+for `@deepseek-ai/dsh`. The launcher rebuilds the candidate with the bundled
+Node.js and pnpm in an App-owned staging directory; it never runs `git pull`,
+modifies global package managers, or installs a Windows service.
+
+The Windows distribution is an x64 portable bundle. Runtime dependencies are
+placed beside the launcher or under the current-user application directory.
+The full bundle includes an x64 Fixed Version WebView2 Runtime and loads it via
+an explicit relative path. No elevation, registry write, scheduled task, service,
+or machine-wide environment change is required.

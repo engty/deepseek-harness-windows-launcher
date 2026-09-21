@@ -31,6 +31,17 @@
 
 App 外壳（窗口、菜单、对话框）会**自动跟随 Windows 的亮色/暗色模式**，在「设置 → 个性化 → 颜色」里切换系统主题时即时生效；窗口内的 Harness 网页界面也会同步收到对应的 `prefers-color-scheme`。
 
+外壳采用 Windows Fluent 与 macOS Liquid Glass 的混合视觉：圆角玻璃命令栏、轻量阴影、柔和状态色和紧凑的余额/折扣/更新入口；Harness 原生 Web UI 仍完整保留，不复制聊天、会话或模型页面。
+
+## 与 macOS 版同步的能力
+
+- 进程启动、优雅停止、崩溃退避重启和 last-known-good Runtime 回退；
+- 官方 `dsh plugin --profile web ...` 插件安装、停用、卸载、构建脚本确认和缓存清理；
+- 1024 Store 内嵌桥接、受限安装请求、版本固定的启动器适配和外部链接隔离；
+- `better-dsh-pet` 桌宠启停、GenUI、隐私路由、Mnemon 和默认技能包由 Runtime 的标准 profile 提供；
+- 旧版 Mnemon Session 修复、脱敏诊断导出、DPAPI 凭据保存和每分钟余额刷新；
+- 默认从官方 npm Registry 检查 `@deepseek-ai/dsh` 版本，使用当前隔离 Node/pnpm 重建干净 Runtime，再进行启动预检和原子切换。
+
 ## 安全性
 
 - **API Key 只留在你的电脑上**：一份用 Windows DPAPI 加密保存（只有当前 Windows 用户能解密，不需要管理员、不弹授权框），另一份存 Harness 的私有凭据文件（所在目录已 ACL 限制为仅当前用户可读）。不上传到任何服务器，没有遥测、没有广告、没有账号系统。
@@ -71,16 +82,23 @@ cd deepseek-harness-windows-launcher
 # 单元测试
 dotnet test tests/HarnessLauncher.Tests/HarnessLauncher.Tests.csproj
 
-# 打包便携版（单文件 exe + zip，产物在 artifacts\）
-.\script\package_portable.ps1 -Version 0.1.0
+# 打包完整便携版（单文件启动器 + 隔离 Runtime + 自解压 zip，产物在 artifacts\）
+.\script\package_portable.ps1 -Version 0.2.0
 
-# （可选）先把官方 Runtime 打进 Resources\runtime，
-# package_portable.ps1 会额外生成含 Runtime 的 -full.zip
+# 先把官方 Runtime 打进 Resources\runtime，随后脚本会生成完整 ZIP 与 SFX EXE
 $env:HARNESS_RUNTIME_SOURCE = "C:\path\to\runtime-source"
 .\script\package_runtime.ps1
 ```
 
-WebView2 运行时：Windows 10/11 绝大多数系统已内置；个别精简系统如果没有，App 会提示安装，WebView2 支持**当前用户免管理员**安装。
+发布包默认要求 `Resources\runtime` 和 `Resources\webview2` 存在；其中应包含固定版本 Node.js、pnpm、官方 Harness、完整生产依赖以及 `default-profile`。启动器不会修改系统 PATH、全局 npm/pnpm、注册表或系统服务。解压目录和 `%LOCALAPPDATA%\DeepSeekHarness` 均属于当前用户，无需管理员权限。
+
+WebView2 运行时：完整便携包将 x64 Fixed Version WebView2 Runtime 放在 `Resources\webview2`，因此不依赖系统安装、注册表或管理员权限。准备运行时可执行：
+
+```powershell
+.\script\prepare_webview2_runtime.ps1
+```
+
+开发时若未准备该目录，启动器会回退使用系统 WebView2 Evergreen Runtime。
 
 ## 许可证
 

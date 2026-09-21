@@ -193,11 +193,18 @@ public sealed class PluginDependencyService
         IReadOnlyDictionary<string, string> additions,
         IReadOnlyDictionary<string, string>? environment = null)
     {
-        var result = new Dictionary<string, string>(
-            (environment ?? _baseEnvironment)
-                .Where(p => p.Value is not null)
-                .Select(p => KeyValuePair.Create(p.Key, p.Value!)),
-            StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (environment is not null)
+        {
+            foreach (var pair in environment) result[pair.Key] = pair.Value;
+        }
+        else
+        {
+            foreach (var pair in _baseEnvironment)
+            {
+                if (pair.Value is { } value) result[pair.Key] = value;
+            }
+        }
         foreach (var pair in additions)
         {
             result[pair.Key] = pair.Value;

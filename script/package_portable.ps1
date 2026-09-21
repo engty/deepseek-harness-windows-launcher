@@ -1,75 +1,103 @@
-﻿# package_portable.ps1 — 发布免安装、免管理员的便携包（单文件 exe + zip）
-#
-# 用法：
-#   .\script\package_portable.ps1 [-Version 0.1.0]
-#
-# 产物：
-#   artifacts\DeepSeekHarness.exe                      （单文件，可直接分发）
-#   artifacts\DeepSeek-Harness-v<版本>-windows-x64.zip  （压缩包形态）
+﻿# 生成无需管理员权限的完整 Windows x64 便携包。
+# 产物：完整 ZIP、7-Zip 自解压 EXE，以及可直接运行的启动器 EXE。
 [CmdletBinding()]
 param(
-    [string]$Version = '0.1.0'
+    [string]$Version = '0.2.0',
+    [switch]$AllowShellOnly,
+    [string]$DotnetPath = 'dotnet'
 )
 $ErrorActionPreference = 'Stop'
 
-$RootDir   = Split-Path -Parent $PSScriptRoot
-$Project   = Join-Path $RootDir 'src\HarnessLauncher\HarnessLauncher.csproj'
+$RootDir = Split-Path -Parent $PSScriptRoot
+$Project = Join-Path $RootDir 'src\HarnessLauncher\HarnessLauncher.csproj'
+$Tests = Join-Path $RootDir 'tests\HarnessLauncher.Tests\HarnessLauncher.Tests.csproj'
+$Runtime = Join-Path $RootDir 'Resources\runtime'
+$WebView2Runtime = Join-Path $RootDir 'Resources\webview2'
 $Artifacts = Join-Path $RootDir 'artifacts'
-$Publish   = Join-Path $RootDir 'publish'
+$Publish = Join-Path $RootDir 'publish'
+$PackageRoot = Join-Path $RootDir '.portable-staging'
+$SevenZip = 'C:\Program Files\7-Zip\7z.exe'
+$Sfx = 'C:\Program Files\7-Zip\7z.sfx'
 
-# PS5.1 的 Remove-Item 不支持超长路径，用 robocopy 空镜像法清除目录
-function Remove-DirectoryRobust([string] $Path) {
+function Remove-DirectoryRobust([string]$Path) {
     if (-not (Test-Path $Path)) { return }
-    $empty = Join-Path $env:TEMP "purge-empty-$PID"
-    New-Item -ItemType Directory -Path $empty -Force | Out-Null
-    robocopy $empty $Path /MIR /NFL /NDL /NJH /NJS | Out-Null
-    Remove-Item $empty -Force -ErrorAction SilentlyContinue
-    Remove-Item $Path -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+function Quote-NativeArgument([string]$Value) {
+    return '"' + $Value.Replace('"', '\"') + '"'
+}
+
+if (-not $AllowShellOnly -and -not (Test-Path (Join-Path $Runtime 'node\bin\node.exe'))) {
+    throw '完整发布必须先准备 Resources\runtime；如只需验证启动器，请显式传入 -AllowShellOnly。'
+}
+if (-not $AllowShellOnly -and -not (Test-Path (Join-Path $WebView2Runtime 'msedgewebview2.exe'))) {
+    throw '完整发布必须先准备 Resources\webview2（x64 Fixed Version WebView2 Runtime）；如只需验证启动器，请显式传入 -AllowShellOnly。'
+}
+if (-not (Test-Path $SevenZip) -or -not (Test-Path $Sfx)) {
+    throw '未找到 7-Zip 自解压组件（7z.exe/7z.sfx）。'
 }
 
 Remove-DirectoryRobust $Publish
 Remove-DirectoryRobust $Artifacts
+Remove-DirectoryRobust $PackageRoot
 
-# 1. 单元测试
-dotnet test (Join-Path $RootDir 'tests\HarnessLauncher.Tests\HarnessLauncher.Tests.csproj') -c Release
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+& $DotnetPath test $Tests -c Release
+if ($LASTEXITCODE -ne 0) { throw "单元测试失败：$LASTEXITCODE" }
 
-# 2. 自包含单文件发布（不依赖目标机器安装 .NET，也不需要管理员权限）
-dotnet publish $Project -c Release -r win-x64 --self-contained true `
+& $DotnetPath publish $Project -c Release -r win-x64 --self-contained true `
     -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-    -p:PublishReadyToRun=true -p:Version=$Version `
-    -o $Publish
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    -p:PublishReadyToRun=true -p:Version=$Version -o $Publish
+if ($LASTEXITCODE -ne 0) { throw "发布失败：$LASTEXITCODE" }
 
-# 3. 组装 artifacts
-New-Item -ItemType Directory -Path $Artifacts -Force | Out-Null
-Copy-Item (Join-Path $Publish 'DeepSeekHarness.exe') $Artifacts
+New-Item -ItemType Directory -Path $Artifacts, $PackageRoot -Force | Out-Null
+$packageName = 'DeepSeek Harness'
+$packageDir = Join-Path $PackageRoot $packageName
+New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
+Copy-Item (Join-Path $Publish 'DeepSeekHarness.exe') (Join-Path $packageDir 'DeepSeekHarness.exe') -Force
 
-# 如果 Resources\runtime 存在（先用 package_runtime.ps1 打包过），
-# 以「文件夹形态」再出一个包含 Runtime 的完整压缩包。
-$zipName = "DeepSeek-Harness-v$Version-windows-x64.zip"
-Compress-Archive -Path (Join-Path $Artifacts 'DeepSeekHarness.exe') `
-    -DestinationPath (Join-Path $Artifacts $zipName)
-
-if (Test-Path (Join-Path $RootDir 'Resources\runtime')) {
-    $fullDir = Join-Path $Artifacts 'DeepSeek Harness'
-    New-Item -ItemType Directory -Path $fullDir -Force | Out-Null
-    Copy-Item (Join-Path $Publish 'DeepSeekHarness.exe') $fullDir
-    # 用 robocopy 代替 Copy-Item：PS5.1 的 Copy-Item 不支持超长路径（深层 node_modules 会失败）
-    robocopy (Join-Path $RootDir 'Resources\runtime') (Join-Path $fullDir 'runtime') /MIR /NFL /NDL /NJH /NJS | Out-Null
-    if ($LASTEXITCODE -gt 7) { Write-Error "复制 Runtime 失败（robocopy $LASTEXITCODE）。"; exit 1 }
-    # 用系统自带 bsdtar 打 zip：Compress-Archive 同样不支持超长路径
-    $fullZip = Join-Path $Artifacts "DeepSeek-Harness-v$Version-windows-x64-full.zip"
-    if (Test-Path $fullZip) { Remove-Item $fullZip -Force }
-    & "$env:SystemRoot\System32\tar.exe" -a -cf $fullZip -C $Artifacts 'DeepSeek Harness'
-    if ($LASTEXITCODE -ne 0) { Write-Error "打包 full.zip 失败（tar $LASTEXITCODE）。"; exit 1 }
-    # 超长路径目录用 robocopy 空镜像法清除
-    $emptyDir = Join-Path $Artifacts '.empty-purge'
-    New-Item -ItemType Directory -Path $emptyDir -Force | Out-Null
-    robocopy $emptyDir $fullDir /MIR /NFL /NDL /NJH /NJS | Out-Null
-    Remove-Item $emptyDir -Force -ErrorAction SilentlyContinue
-    Remove-Item $fullDir -Force -ErrorAction SilentlyContinue
-    Write-Host '已生成含内置 Runtime 的完整压缩包。'
+if (Test-Path $Runtime) {
+    robocopy $Runtime (Join-Path $packageDir 'runtime') /MIR /NFL /NDL /NJH /NJS | Out-Null
+    if ($LASTEXITCODE -gt 7) { throw "复制 Runtime 失败：$LASTEXITCODE" }
+}
+robocopy (Join-Path $RootDir 'Resources\dsh1024-launcher') (Join-Path $packageDir 'Resources\dsh1024-launcher') /MIR /NFL /NDL /NJH /NJS | Out-Null
+if ($LASTEXITCODE -gt 7) { throw "复制 1024 Store 适配资源失败：$LASTEXITCODE" }
+robocopy (Join-Path $RootDir 'Resources\session-repair') (Join-Path $packageDir 'Resources\session-repair') /MIR /NFL /NDL /NJH /NJS | Out-Null
+if ($LASTEXITCODE -gt 7) { throw "复制 Session 修复资源失败：$LASTEXITCODE" }
+if (Test-Path $WebView2Runtime) {
+    robocopy $WebView2Runtime (Join-Path $packageDir 'Resources\webview2') /MIR /NFL /NDL /NJH /NJS | Out-Null
+    if ($LASTEXITCODE -gt 7) { throw "复制 WebView2 固定运行时失败：$LASTEXITCODE" }
 }
 
-Get-ChildItem $Artifacts | Select-Object Name, @{N='MB';E={[math]::Round($_.Length/1MB,1)}}
+$zipName = "DeepSeek-Harness-v$Version-windows-x64-full.zip"
+$zipPath = Join-Path $Artifacts $zipName
+$tarProcess = Start-Process -FilePath "$env:SystemRoot\System32\tar.exe" `
+    -ArgumentList @('-a', '-c', '-f', (Quote-NativeArgument $zipPath), '-C', (Quote-NativeArgument $PackageRoot), (Quote-NativeArgument $packageName)) `
+    -Wait -PassThru -NoNewWindow
+if ($tarProcess.ExitCode -ne 0) { throw "完整 ZIP 打包失败：$($tarProcess.ExitCode)" }
+
+$payload = Join-Path $PackageRoot 'payload.7z'
+$config = Join-Path $PackageRoot 'sfx-config.txt'
+@'
+;!@Install@!UTF-8!
+RunProgram="DeepSeek Harness\DeepSeekHarness.exe"
+GUIMode="2"
+;!@InstallEnd@!
+'@ | Set-Content -LiteralPath $config -Encoding UTF8
+$sevenZipProcess = Start-Process -FilePath $SevenZip `
+    -ArgumentList @('a', '-t7z', '-mx=7', (Quote-NativeArgument $payload), (Quote-NativeArgument (Join-Path $PackageRoot $packageName))) `
+    -Wait -PassThru -NoNewWindow
+if ($sevenZipProcess.ExitCode -ne 0) { throw "7z payload 打包失败：$($sevenZipProcess.ExitCode)" }
+
+$sfxName = "DeepSeek-Harness-v$Version-windows-x64.exe"
+$sfxPath = Join-Path $Artifacts $sfxName
+$output = [System.IO.File]::Open($sfxPath, [System.IO.FileMode]::Create)
+try {
+    foreach ($source in @($Sfx, $config, $payload)) {
+        $input = [System.IO.File]::OpenRead($source)
+        try { $input.CopyTo($output) } finally { $input.Dispose() }
+    }
+} finally { $output.Dispose() }
+
+Copy-Item (Join-Path $Publish 'DeepSeekHarness.exe') (Join-Path $Artifacts 'DeepSeekHarness.exe') -Force
+Get-ChildItem $Artifacts | Select-Object Name, @{N='MB';E={[math]::Round($_.Length / 1MB, 1)}}

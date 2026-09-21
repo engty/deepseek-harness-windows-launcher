@@ -100,11 +100,18 @@ public sealed class LauncherModel : INotifyPropertyChanged
     private readonly DataSlotManager _dataSlotManager;
     private readonly RuntimePreflightService _runtimePreflight;
     private readonly DeepSeekBalanceService _balanceService;
+    private readonly DefaultProfileInstaller _defaultProfileInstaller;
+    private readonly OfficialHarnessVersionService _officialVersionService;
+    private readonly OfficialHarnessRuntimeBuilder _officialRuntimeBuilder;
+    private readonly PluginCacheService _pluginCacheService;
+    private readonly LegacySessionRepairService _legacySessionRepairService;
+    private readonly RuntimeCompatibilityService _runtimeCompatibilityService;
     private readonly DeepSeekCredentialStore _deepSeekCredentialStore = new();
     private readonly CredentialStore _balanceCredentialStore;
     private readonly ILauncherDialogs _dialogs;
 
     private RuntimeManifest? _latestManifest;
+    private OfficialHarnessVersionResult? _latestOfficialVersion;
     private CancellationTokenSource? _balanceRefreshCts;
     private CancellationTokenSource? _updateCheckCts;
     private int _consecutiveCrashCount;
@@ -134,6 +141,12 @@ public sealed class LauncherModel : INotifyPropertyChanged
         _dataSlotManager = new DataSlotManager();
         _runtimePreflight = new RuntimePreflightService();
         _balanceService = new DeepSeekBalanceService();
+        _defaultProfileInstaller = new DefaultProfileInstaller();
+        _officialVersionService = new OfficialHarnessVersionService();
+        _officialRuntimeBuilder = new OfficialHarnessRuntimeBuilder();
+        _pluginCacheService = new PluginCacheService();
+        _legacySessionRepairService = new LegacySessionRepairService();
+        _runtimeCompatibilityService = new RuntimeCompatibilityService();
         _balanceCredentialStore = new CredentialStore(
             Paths.ProtectedCredentialStore,
             AppPaths.BundleIdentifier + ".credentials.v2");
@@ -199,6 +212,11 @@ public sealed class LauncherModel : INotifyPropertyChanged
             Paths.Prepare();
             _dataSlotManager.RecoverPendingTransaction(Paths);
             var installation = _locator.Locate();
+            _defaultProfileInstaller.SeedIfNeeded(Paths, installation.Root);
+            _defaultProfileInstaller.TryApplyDsh1024Adapter(Paths.ProfileWeb);
+            _runtimeCompatibilityService.Apply(Paths, installation);
+            if (installation.NodeExecutable is not null)
+                await _legacySessionRepairService.RepairAsync(installation, Paths);
             RuntimePath = installation.Executable;
             RuntimeVersion = installation.Version;
             var url = await _processController.StartAsync(
@@ -364,6 +382,106 @@ public sealed class LauncherModel : INotifyPropertyChanged
         var names = string.Join(", ", selected.Select(p => p.Name));
         if (!ConfirmPluginMutation("停用", names)) return;
         _ = SetPluginsEnabledAsync(selected, enabled: false);
+    }
+
+    public void ClearPluginCachePrompt()
+    {
+        var entries = _pluginCacheService.Entries(_profileManager.Refresh(), Paths);
+        if (entries.Count == 0)
+        {
+            _dialogs.Info("没有可清理的缓存", "当前没有发现插件或共享 pnpm 缓存。");
+            return;
+        }
+        var summary = string.Join("\n", entries.Select(entry =>
+            $"• {entry.Title}（{entry.SizeBytes / 1024d / 1024d:0.0} MB）"));
+        if (!_dialogs.Confirm("清理插件缓存",
+                $"将清理以下 App 可控缓存，不会删除插件源码或用户会话：\n\n{summary}")) return;
+        _ = ClearPluginCachesAsync(entries);
+    }
+
+    private async Task ClearPluginCachesAsync(IReadOnlyList<PluginCacheEntry> entries)
+    {
+        if (!BeginExclusiveOperation()) return;
+        try
+        {
+            var wasRunning = _processController.IsRunning;
+            Phase = new LauncherPhase.Busy("正在清理插件缓存");
+            if (wasRunning) await _processController.StopAsync();
+            RuntimeInstallation? installation = null;
+            try { installation = _locator.Locate(); } catch { }
+            var report = await _pluginCacheService.CleanupAsync(entries, Paths, installation);
+            if (wasRunning) await StartAsync(); else Phase = new LauncherPhase.Stopped();
+            _dialogs.Info("插件缓存清理完成", report.Summary);
+        }
+        catch (Exception error)
+        {
+            LastError = error.Message;
+            _dialogs.Info("插件缓存清理失败", error.Message);
+        }
+        finally
+        {
+            EndExclusiveOperation();
+        }
+    }
+
+    public async Task<Dictionary<string, object?>> HandlePluginStoreRequestAsync(
+        IReadOnlyList<string> command)
+    {
+        try
+        {
+            var request = PluginStoreRequest.Parse(command);
+            var installation = _locator.Locate();
+            var plan = _pluginRunner.DependencyPlan(installation, Paths, request.Arguments);
+            var target = string.Join(' ', request.Arguments.Skip(1));
+            if (!ConfirmPluginMutation(request.IsRemoval ? "卸载" : "安装", target, plan))
+                return new Dictionary<string, object?> { ["ok"] = false, ["cancelled"] = true };
+            await MutatePluginAsync(
+                request.Arguments,
+                request.IsRemoval ? "正在从 1024 Store 卸载插件" : "正在从 1024 Store 安装插件",
+                request.IsRemoval ? "卸载" : "安装",
+                plan,
+                allowedBuildScripts: request.AllowedBuildScripts);
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = Phase.IsReady || Phase is LauncherPhase.Stopped,
+                ["installed"] = Plugins.Select(plugin => plugin.Id).ToArray(),
+                ["message"] = LastError,
+            };
+        }
+        catch (Exception error)
+        {
+            return new Dictionary<string, object?> { ["ok"] = false, ["error"] = SensitiveDataRedactor.Redact(error.Message) };
+        }
+    }
+
+    public void SetDesktopPetEnabled(bool enabled)
+    {
+        if (Phase is not LauncherPhase.Ready(var endpoint))
+        {
+            _dialogs.Info("桌宠暂不可用", "请先等待 DeepSeek Harness 启动完成。");
+            return;
+        }
+        _ = SetDesktopPetEnabledAsync(endpoint, enabled);
+    }
+
+    private async Task SetDesktopPetEnabledAsync(Uri endpoint, bool enabled)
+    {
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            using var request = new HttpRequestMessage(HttpMethod.Patch,
+                new Uri(endpoint, "/plugins/better-dsh-pet/config"));
+            request.Content = new StringContent(
+                System.Text.Json.JsonSerializer.Serialize(new { enabled }),
+                System.Text.Encoding.UTF8, "application/json");
+            using var response = await client.SendAsync(request).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"HTTP {(int)response.StatusCode}");
+            AppLogger.Log(AppLogger.Level.Info, "plugins", $"Desktop pet {(enabled ? "enabled" : "disabled")}");
+        }
+        catch (Exception error)
+        {
+            _dialogs.Info(enabled ? "桌宠启动失败" : "桌宠停用失败", error.Message);
+        }
     }
 
     public async Task StartPluginAsync(HarnessPlugin plugin) =>
@@ -543,6 +661,7 @@ public sealed class LauncherModel : INotifyPropertyChanged
             {
                 await _pluginRunner.MutateProfileAsync(
                     installation, Paths, arguments, dependencyPlan, allowedBuildScripts);
+                _defaultProfileInstaller.TryApplyDsh1024Adapter(Paths.ProfileWeb);
                 Plugins = _profileManager.Refresh();
                 if (wasRunning)
                 {
@@ -816,11 +935,33 @@ public sealed class LauncherModel : INotifyPropertyChanged
         UpdateState = new RuntimeUpdateState.Checking();
         try
         {
+            if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("HARNESS_UPDATE_MANIFEST_URL")))
+            {
+                var official = await _officialVersionService.CheckAsync(includePrereleases: true);
+                if (requestId != _updateRequestId) return;
+                if (official.IsUpdateAvailable(RuntimeVersion))
+                {
+                    _latestOfficialVersion = official;
+                    _latestManifest = null;
+                    UpdateState = new RuntimeUpdateState.Available($"official-{official.Version}");
+                    if (presentResult)
+                        _dialogs.Info("发现官方 Harness Runtime 更新",
+                            $"当前版本：{RuntimeVersion ?? "unknown"}\n最新版本：{official.Version}\n\n点击顶栏下载按钮后，启动器会在隔离目录内重新构建并预检完整 Runtime。");
+                }
+                else
+                {
+                    _latestOfficialVersion = null;
+                    UpdateState = new RuntimeUpdateState.UpToDate();
+                    if (presentResult) _dialogs.Info("Harness Runtime 已是最新", official.Version);
+                }
+                return;
+            }
             var result = await _updateService.CheckAsync(RuntimeVersion);
             if (requestId != _updateRequestId) return;
             if (result.IsUpdateAvailable)
             {
                 _latestManifest = result.Manifest;
+                _latestOfficialVersion = null;
                 UpdateState = new RuntimeUpdateState.Available(result.Manifest.RuntimeId);
                 if (presentResult) PresentUpdateAlert(result);
             }
@@ -838,6 +979,7 @@ public sealed class LauncherModel : INotifyPropertyChanged
         {
             if (requestId != _updateRequestId) return;
             _latestManifest = null;
+            _latestOfficialVersion = null;
             UpdateState = new RuntimeUpdateState.Failed(error.Message);
             if (presentResult)
             {
@@ -882,12 +1024,44 @@ public sealed class LauncherModel : INotifyPropertyChanged
 
     private async Task DownloadLatestUpdateIfAvailableAsync()
     {
+        if (_latestOfficialVersion is not null)
+        {
+            await DownloadOfficialLatestUpdateAsync(_latestOfficialVersion);
+            return;
+        }
         if (_latestManifest is null)
         {
             await CheckForUpdatesAsync(presentResult: false);
             if (_latestManifest is null) return;
         }
         await DownloadLatestUpdateAsync(_latestManifest);
+    }
+
+    private async Task DownloadOfficialLatestUpdateAsync(OfficialHarnessVersionResult official)
+    {
+        if (!BeginExclusiveOperation()) return;
+        try
+        {
+            var current = _locator.Locate();
+            Phase = new LauncherPhase.Busy("正在准备官方 Harness Runtime");
+            var artifact = await _officialRuntimeBuilder.BuildAsync(
+                current,
+                official,
+                Paths,
+                new Progress<RuntimeUpdateStage>(stage =>
+                    Phase = new LauncherPhase.Busy($"正在更新 Harness（{stage}）")));
+            if (PresentRuntimeActivationConfirmation(artifact.Manifest, artifact.ArtifactPath))
+                await ActivateRuntimeUpdateAsync(artifact.Manifest, artifact.ArtifactPath);
+        }
+        catch (Exception error)
+        {
+            UpdateState = new RuntimeUpdateState.Failed(error.Message);
+            _dialogs.Info("官方 Harness 更新失败", error.Message);
+        }
+        finally
+        {
+            EndExclusiveOperation();
+        }
     }
 
     private async Task DownloadLatestUpdateAsync(RuntimeManifest manifest)
@@ -952,6 +1126,12 @@ public sealed class LauncherModel : INotifyPropertyChanged
                 try { if (Directory.Exists(basePreflightRoot)) Directory.Delete(basePreflightRoot, true); }
                 catch { }
             }
+
+            _runtimeCompatibilityService.ApplyToProfile(
+                Path.Combine(candidateSlot, "dsh-home", "profiles", "web"),
+                newActivation.Installation.Root,
+                RuntimeVersion,
+                Path.Combine(candidateSlot, "dsh-home", "backups"));
 
             // Always boot the new Runtime against a clone of the user's real
             // profile, even when the App was stopped before the update.

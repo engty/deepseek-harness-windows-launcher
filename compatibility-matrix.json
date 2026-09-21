@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-08-17",
+  "updatedAt": "2026-09-21",
   "shell": {
     "product": "DeepSeek Harness",
     "bundleIdentifier": "com.harness.desktop.launcher",
-    "version": "0.1.0-dev",
+    "version": "0.2.0-dev",
     "minimumWindows": "10.0.17763 (Windows 10 1809)",
     "architectures": ["x64"]
   },
@@ -14,14 +14,15 @@
     "sourceCommit": "47f943859bef60e4160492346772ded9b24f765a",
     "nodeVersion": "22.18.0",
     "channel": "preview",
-    "artifactRequired": true
+    "artifactRequired": true,
+    "versionSource": "https://registry.npmjs.org/@deepseek-ai%2Fdsh"
   },
   "plugins": {
     "dsh-llm-codex": {
       "versions": ["0.1.1"],
       "status": "experimental",
       "distribution": "standard-plugin-only",
-      "launcherVerifiedOperations": ["install", "remove", "stop"],
+      "launcherVerifiedOperations": ["install", "remove", "stop", "cache-cleanup", "profile-preflight"],
       "providerCompatibilityOwner": "plugin-and-harness-upstream"
     }
   },
@@ -33,6 +34,8 @@
     "pluginLicenseReview": "not-owned-by-launcher",
     "installer": "not-required-portable-zip-or-single-exe",
     "adminRights": "not-required",
-    "codeSigning": "not-required"
+    "codeSigning": "not-required",
+    "distribution": "self-contained-x64-portable-zip",
+    "webView2": "bundled-x64-fixed-version"
   }
 }
