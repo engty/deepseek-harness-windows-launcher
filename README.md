@@ -16,7 +16,7 @@
 
 **要求**：Windows 10 (1809+) 或 Windows 11，x64。无需管理员权限。
 
-1. **下载**：到本仓库的 Releases 页面，下载 `DeepSeek-Harness-v<版本号>-windows-x64.zip`（或单独的 `DeepSeekHarness.exe`）。
+1. **下载**：到本仓库的 Releases 页面，推荐下载 `DeepSeek-Harness-v<版本号>-windows-x64-full.zip`；它与原 Windows 项目的 full 包保持相同目录结构并包含隔离 Runtime。也可下载普通 `DeepSeek-Harness-v<版本号>-windows-x64.zip` 或 full 自解压 EXE。
 2. **解压即用**：这是一个**便携软件（portable）**——没有安装程序、不写注册表、不需要管理员权限。解压到任意你有写权限的目录（比如 `D:\Tools\` 或桌面），双击 `DeepSeekHarness.exe` 即可。AD 域内网受限账号也能正常用。
 3. **首次打开**：App 未做代码签名，SmartScreen 可能提示「Windows 已保护你的电脑」——点「更多信息 → 仍要运行」即可。
 4. **配置 API Key**：打开 App 后，点击顶栏的「余额」按钮，粘贴你的 DeepSeek API Key。配好后顶栏会显示余额，聊天和余额共用同一个 Key。
@@ -82,17 +82,17 @@ cd deepseek-harness-windows-launcher
 # 单元测试
 dotnet test tests/HarnessLauncher.Tests/HarnessLauncher.Tests.csproj
 
-# 打包完整便携版（单文件启动器 + 隔离 Runtime + 自解压 zip，产物在 artifacts\）
+# 打包完整便携版（启动器 EXE、普通 ZIP、full ZIP、自解压 EXE，产物在 artifacts\）
 .\script\package_portable.ps1 -Version 0.2.0
 
-# 先把官方 Runtime 打进 Resources\runtime，随后脚本会生成完整 ZIP 与 SFX EXE
+# 先把官方 Runtime 打进 Resources\runtime，随后脚本会生成与旧 Windows 项目一致的 full ZIP
 $env:HARNESS_RUNTIME_SOURCE = "C:\path\to\runtime-source"
 .\script\package_runtime.ps1
 ```
 
-发布包默认要求 `Resources\runtime` 和 `Resources\webview2` 存在；其中应包含固定版本 Node.js、pnpm、官方 Harness、完整生产依赖以及 `default-profile`。启动器不会修改系统 PATH、全局 npm/pnpm、注册表或系统服务。解压目录和 `%LOCALAPPDATA%\DeepSeekHarness` 均属于当前用户，无需管理员权限。
+正式 full 发布要求 `Resources\runtime` 存在，其中包含固定版本 Node.js、pnpm、官方 Harness 和完整生产依赖；与旧 Windows 项目一致，已验证的 `@deepseek-ai/dsh@0.1.0-rc.6` Runtime 不要求额外的 `default-profile` 目录。启动器不会修改系统 PATH、全局 npm/pnpm、注册表或系统服务。解压目录和 `%LOCALAPPDATA%\DeepSeekHarness` 均属于当前用户，无需管理员权限。
 
-WebView2 运行时：完整便携包将 x64 Fixed Version WebView2 Runtime 放在 `Resources\webview2`，因此不依赖系统安装、注册表或管理员权限。准备运行时可执行：
+WebView2 运行时：如果准备了 `Resources\webview2`，full 包会将 x64 Fixed Version WebView2 一起打包，进一步隔离 Windows 依赖；没有该目录时保留旧项目的系统 Evergreen Runtime 兼容行为。准备运行时可执行：
 
 ```powershell
 .\script\prepare_webview2_runtime.ps1

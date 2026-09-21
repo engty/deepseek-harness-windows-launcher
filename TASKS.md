@@ -8,4 +8,5 @@
 - [x] Build a self-contained x64 portable package pipeline with isolated Runtime/WebView2 inputs and no administrator requirement.
 - [x] Extend unit, security, plugin, runtime, and packaging validation.
 - [x] Update README, SECURITY, compatibility matrix, and release scripts.
-- [x] Commit and push the verified result to `main`.
+- [x] Commit the verified result locally.
+- [ ] Push the commit to GitHub after the repository account is authenticated.

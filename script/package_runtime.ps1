@@ -39,9 +39,9 @@ if (-not (Test-Path $pnpmShim)) {
     Write-Error 'Runtime source 中没有 node_modules\.bin\pnpm.cmd；请把固定版本 pnpm 一起安装到 Runtime。'
     exit 2
 }
-$defaultProfile = Join-Path $RuntimeSource 'default-profile\profiles\web'
-if (-not (Test-Path (Join-Path $defaultProfile 'package.json'))) {
-    Write-Error 'Runtime source 中没有 default-profile\profiles\web；完整发布需要内置插件 profile（1024 Store、GenUI、桌宠、隐私路由、Mnemon 和技能包）。'
+$dshPackage = Join-Path $RuntimeSource 'node_modules\@deepseek-ai\dsh\package.json'
+if (-not (Test-Path $dshPackage)) {
+    Write-Error 'Runtime source 中没有 node_modules\@deepseek-ai\dsh\package.json；请使用官方 Harness Runtime。'
     exit 2
 }
 

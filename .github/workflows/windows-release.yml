@@ -20,39 +20,79 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - uses: ilammy/setup-7zip@v1
+
+      - name: Resolve package version
+        id: version
+        shell: pwsh
+        run: |
+          $version = '0.2.0'
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
       - name: Restore
-        run: dotnet restore src/HarnessLauncher/HarnessLauncher.csproj
+        run: dotnet restore tests/HarnessLauncher.Tests/HarnessLauncher.Tests.csproj
 
       - name: Build
         run: dotnet build src/HarnessLauncher/HarnessLauncher.csproj -c Release --no-restore
 
-      - name: Test
-        run: dotnet test tests/HarnessLauncher.Tests/HarnessLauncher.Tests.csproj -c Release
-
-      - name: Publish portable single-file exe
-        run: |
-          dotnet publish src/HarnessLauncher/HarnessLauncher.csproj -c Release -r win-x64 `
-            --self-contained true -p:PublishSingleFile=true `
-            -p:IncludeNativeLibrariesForSelfExtract=true -p:PublishReadyToRun=true `
-            -o publish
-
-      - name: Package portable zip
+      - name: Prepare known-good Harness Runtime
+        if: github.event_name != 'pull_request'
         shell: pwsh
         run: |
-          $version = '0.1.0'
-          if ($env:GITHUB_REF_TYPE -eq 'tag') { $version = $env:GITHUB_REF_NAME -replace '^v', '' }
-          New-Item -ItemType Directory -Path artifacts -Force | Out-Null
-          Copy-Item publish\DeepSeekHarness.exe artifacts\
-          Compress-Archive -Path artifacts\DeepSeekHarness.exe `
-            -DestinationPath "artifacts\DeepSeek-Harness-v$version-windows-x64.zip"
+          $url = 'https://github.com/engty/deepseek-harness-windows-launcher/releases/download/v0.1.2/DeepSeek-Harness-v0.1.2-windows-x64-full.zip'
+          $expected = '9FD9F3BB361AEC50C67D78DA9E3082ADF27DA1FD4E6830BCFFEA197D53A525F2'
+          $archive = Join-Path $env:RUNNER_TEMP 'dsh-reference-runtime.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'dsh-reference-runtime'
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $archive).Hash
+          if ($actual -ne $expected) {
+            throw "参考 Runtime SHA-256 校验失败：$actual"
+          }
+          New-Item -ItemType Directory -Path $extract -Force | Out-Null
+          & '7z.exe' x $archive "-o$extract" -y
+          if ($LASTEXITCODE -ne 0) { throw "参考 Runtime 解压失败：$LASTEXITCODE" }
+          $runtime = Join-Path $extract 'DeepSeek Harness\runtime'
+          $node = Join-Path $runtime 'node\bin\node.exe'
+          if (-not (Test-Path (Join-Path $runtime 'node_modules\.bin\dsh.cmd'))) {
+            throw '参考包中没有官方 dsh Windows shim。'
+          }
+          "HARNESS_RUNTIME_SOURCE=$runtime" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "HARNESS_NODE_PATH=$node" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install reference Runtime into build inputs
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        run: .\script\package_runtime.ps1
+
+      - name: Prepare fixed WebView2 Runtime
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        run: .\script\prepare_webview2_runtime.ps1
+
+      - name: Test
+        if: github.event_name == 'pull_request'
+        run: dotnet test tests/HarnessLauncher.Tests/HarnessLauncher.Tests.csproj -c Release --no-restore
+
+      - name: Package full release
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        run: .\script\package_portable.ps1 -Version '${{ steps.version.outputs.version }}'
+
+      - name: Package pull request smoke artifact
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        run: .\script\package_portable.ps1 -Version '${{ steps.version.outputs.version }}' -AllowShellOnly -SkipSfx
 
       - uses: actions/upload-artifact@v4
         with:
           name: windows-portable
-          path: artifacts/
+          path: artifacts/*
 
       - name: Upload release assets
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*.zip
+          files: artifacts/*
